@@ -1,0 +1,4 @@
+client_id,channel,user_id,chat_id,username,phone_number
+client-telegram-demo,telegram,123456789,123456789,demo_telegram_user,
+client-whatsapp-demo,whatsapp,,,,5215555555555
+client-nuevo-001,telegram,5676586132,5676586132,,

@@ -1,0 +1,4 @@
+access_code,client_id,channel,used,expires_at,used_at
+ABC123XYZ,client-telegram-demo,telegram,false,2027-12-31T23:59:59+00:00,
+WSP123XYZ,client-whatsapp-demo,whatsapp,false,2027-12-31T23:59:59+00:00,
+NUEVO123,client-nuevo-001,telegram,true,2027-12-31T23:59:59+00:00,2026-03-23T18:49:35+00:00
