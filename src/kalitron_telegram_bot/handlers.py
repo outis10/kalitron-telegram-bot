@@ -12,6 +12,7 @@ from kalitron_telegram_bot.domain import (
     IncomingDocument,
     InputChannel,
     PendingValidation,
+    ReceiptDocumentType,
     ValidateIdentityCommand,
     ValidateReceiptCommand,
     ValidationKind,
@@ -23,6 +24,7 @@ from kalitron_telegram_bot.errors import (
     ValidationCompatibilityError,
     ValidationIntegrationError,
     ValidationRequestError,
+    ValidationTransportError,
 )
 from kalitron_telegram_bot.session_store import SessionStore
 
@@ -40,8 +42,8 @@ class TelegramBotHandlers:
             return
 
         await update.message.reply_text(
-            "Usa /receipt y luego envía una imagen para validar un recibo.\n"
-            "Usa /identity <INE|PASAPORTE|LICENCIA> y luego envía una imagen para validar una identificación.\n"
+            "Usa /receipt [RECEIPT|ADDRESS_PROOF] y luego envía una imagen para validar un recibo.\n"
+            "Usa /identity <INE|INE_REVERSO|PASAPORTE|LICENCIA> y luego envía una imagen para validar una identificación.\n"
             "Si aún no estás registrado, envía: ALTA TU_CODIGO"
         )
 
@@ -85,12 +87,25 @@ class TelegramBotHandlers:
         if not update.effective_chat or not update.message:
             return
 
+        document_type = ReceiptDocumentType.RECEIPT
+        if context.args:
+            try:
+                document_type = ReceiptDocumentType(context.args[0].upper())
+            except ValueError:
+                await update.message.reply_text(
+                    "Tipo inválido. Usa RECEIPT o ADDRESS_PROOF."
+                )
+                return
+
         self.session_store.set_pending(
             update.effective_chat.id,
-            PendingValidation(kind=ValidationKind.RECEIPT),
+            PendingValidation(
+                kind=ValidationKind.RECEIPT,
+                receipt_document_type=document_type,
+            ),
         )
         await update.message.reply_text(
-            "Envía la imagen del recibo en JPG, PNG o WebP."
+            f"Envía la imagen del documento para {document_type.value} en JPG, PNG o WebP."
         )
 
     async def identity(
@@ -114,7 +129,8 @@ class TelegramBotHandlers:
         self.session_store.set_pending(
             update.effective_chat.id,
             PendingValidation(
-                kind=ValidationKind.IDENTITY, document_type=document_type
+                kind=ValidationKind.IDENTITY,
+                identity_document_type=document_type,
             ),
         )
         await update.message.reply_text(
@@ -145,17 +161,20 @@ class TelegramBotHandlers:
         try:
             if pending.kind is ValidationKind.RECEIPT:
                 result = await self.validation_use_cases.validate_receipt(
-                    ValidateReceiptCommand(document=submission)
+                    ValidateReceiptCommand(
+                        document=submission,
+                        document_type=pending.receipt_document_type,
+                    )
                 )
             else:
-                if pending.document_type is None:
+                if pending.identity_document_type is None:
                     raise ValidationCompatibilityError(
                         "Falta document_type para la validación de identidad."
                     )
                 result = await self.validation_use_cases.validate_identity(
                     ValidateIdentityCommand(
                         document=submission,
-                        document_type=pending.document_type,
+                        document_type=pending.identity_document_type,
                     )
                 )
         except ClientResolutionError as exc:
@@ -170,6 +189,9 @@ class TelegramBotHandlers:
             await update.message.reply_text(
                 f"El gateway respondió con {exc.status_code}: {exc.detail}"
             )
+            return
+        except ValidationTransportError as exc:
+            await update.message.reply_text(str(exc))
             return
         except ValidationIntegrationError as exc:
             await update.message.reply_text(

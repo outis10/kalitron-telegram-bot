@@ -39,7 +39,8 @@ class ValidationUseCases:
         self, command: ValidateReceiptCommand
     ) -> ValidationResult:
         resolved_command = ValidateReceiptCommand(
-            document=self._resolve_document_client(command.document)
+            document=self._resolve_document_client(command.document),
+            document_type=command.document_type,
         )
         return await self.validation_gateway.validate_receipt(resolved_command)
 

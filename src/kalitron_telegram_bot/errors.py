@@ -19,3 +19,7 @@ class ValidationRequestError(ValidationIntegrationError):
         super().__init__(detail)
         self.status_code = status_code
         self.detail = detail
+
+
+class ValidationTransportError(ValidationIntegrationError):
+    pass

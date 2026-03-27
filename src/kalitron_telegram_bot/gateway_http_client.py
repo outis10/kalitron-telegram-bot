@@ -6,7 +6,10 @@ from typing import Any
 import httpx
 
 from kalitron_telegram_bot.domain import ValidationResult
-from kalitron_telegram_bot.errors import ValidationRequestError
+from kalitron_telegram_bot.errors import (
+    ValidationRequestError,
+    ValidationTransportError,
+)
 from kalitron_telegram_bot.gateway_contract import (
     GatewayIdentityRequest,
     GatewayReceiptRequest,
@@ -30,6 +33,7 @@ class GatewayHttpClient:
         payload = {
             "client_id": request.client_id,
             "source": request.source,
+            "document_type": request.document_type,
         }
         response = await self._post_multipart(
             path="/api/v1/validate/receipt",
@@ -65,16 +69,23 @@ class GatewayHttpClient:
         content: bytes,
         content_type: str,
     ) -> dict:
-        async with httpx.AsyncClient(
-            timeout=self.timeout_seconds,
-            transport=self.transport,
-        ) as client:
-            response = await client.post(
-                f"{self.base_url}{path}",
-                headers=self._headers,
-                data=data,
-                files={"file": (file_name, content, content_type)},
-            )
+        try:
+            async with httpx.AsyncClient(
+                timeout=self.timeout_seconds,
+                transport=self.transport,
+            ) as client:
+                response = await client.post(
+                    f"{self.base_url}{path}",
+                    headers=self._headers,
+                    data=data,
+                    files={"file": (file_name, content, content_type)},
+                )
+        except httpx.TimeoutException as exc:
+            raise ValidationTransportError("El gateway no respondió a tiempo.") from exc
+        except httpx.RequestError as exc:
+            raise ValidationTransportError(
+                "No fue posible conectar con el gateway."
+            ) from exc
 
         if response.is_success:
             return response.json()

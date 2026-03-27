@@ -14,8 +14,14 @@ class ValidationKind(str, Enum):
 
 class IdentityDocumentType(str, Enum):
     INE = "INE"
+    INE_REVERSO = "INE_REVERSO"
     PASAPORTE = "PASAPORTE"
     LICENCIA = "LICENCIA"
+
+
+class ReceiptDocumentType(str, Enum):
+    RECEIPT = "RECEIPT"
+    ADDRESS_PROOF = "ADDRESS_PROOF"
 
 
 class GatewayReceiptSource(str, Enum):
@@ -28,7 +34,8 @@ class GatewayReceiptSource(str, Enum):
 @dataclass(slots=True)
 class PendingValidation:
     kind: ValidationKind
-    document_type: IdentityDocumentType | None = None
+    identity_document_type: IdentityDocumentType | None = None
+    receipt_document_type: ReceiptDocumentType = ReceiptDocumentType.RECEIPT
 
 
 @dataclass(slots=True)
@@ -52,6 +59,7 @@ class IncomingDocument:
 @dataclass(slots=True)
 class ValidateReceiptCommand:
     document: IncomingDocument
+    document_type: ReceiptDocumentType = ReceiptDocumentType.RECEIPT
 
 
 @dataclass(slots=True)

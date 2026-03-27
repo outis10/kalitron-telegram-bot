@@ -14,6 +14,7 @@ from kalitron_telegram_bot.domain import (
     IdentityDocumentType,
     IncomingDocument,
     InputChannel,
+    ReceiptDocumentType,
     ValidateIdentityCommand,
     ValidateReceiptCommand,
 )
@@ -22,6 +23,7 @@ from kalitron_telegram_bot.errors import (
     ClientResolutionError,
     ValidationCompatibilityError,
     ValidationRequestError,
+    ValidationTransportError,
 )
 from kalitron_telegram_bot.gateway_adapter import (
     GatewayChannelMapping,
@@ -95,13 +97,14 @@ def test_gateway_adapter_maps_telegram_receipt_to_configured_gateway_source():
                     file_name="receipt.png",
                     content_type="image/png",
                     content=b"png",
-                )
+                ),
             )
         )
     )
 
     assert http_client.receipt_request is not None
     assert http_client.receipt_request.source == GatewayReceiptSource.MANUAL.value
+    assert http_client.receipt_request.document_type == "RECEIPT"
     assert result.document_type == "RECEIPT"
 
 
@@ -134,6 +137,37 @@ def test_gateway_adapter_passes_identity_without_source_mapping():
 
     assert http_client.identity_request is not None
     assert http_client.identity_request.document_type == "INE"
+
+
+def test_gateway_adapter_passes_special_receipt_document_type():
+    http_client = DummyGatewayHttpClient()
+    adapter = GatewayValidationAdapter(
+        http_client=http_client,  # type: ignore[arg-type]
+        channel_mapping=GatewayChannelMapping.from_settings(
+            telegram_receipt_source="manual"
+        ),
+    )
+
+    asyncio.run(
+        adapter.validate_receipt(
+            ValidateReceiptCommand(
+                document=IncomingDocument(
+                    sender=ChannelIdentity(
+                        channel=InputChannel.TELEGRAM,
+                        user_id="1",
+                    ),
+                    client_id="12345",
+                    file_name="comprobante.png",
+                    content_type="image/png",
+                    content=b"png",
+                ),
+                document_type=ReceiptDocumentType.ADDRESS_PROOF,
+            )
+        )
+    )
+
+    assert http_client.receipt_request is not None
+    assert http_client.receipt_request.document_type == "ADDRESS_PROOF"
 
 
 def test_invalid_channel_mapping_value_is_rejected():
@@ -338,6 +372,7 @@ def test_gateway_http_client_sends_receipt_payload():
             GatewayReceiptRequest(
                 client_id="12345",
                 source="manual",
+                document_type="RECEIPT",
                 file=GatewayFilePart(
                     file_name="receipt.png",
                     content=b"png",
@@ -351,6 +386,8 @@ def test_gateway_http_client_sends_receipt_payload():
     assert captured["header"] == "secret"
     assert 'name="source"' in captured["body"]
     assert "manual" in captured["body"]
+    assert 'name="document_type"' in captured["body"]
+    assert "RECEIPT" in captured["body"]
     assert result.document_type == "RECEIPT"
 
 
@@ -363,3 +400,58 @@ def test_gateway_request_error_exposes_status_code():
     error = ValidationRequestError(503, "Temporarily unavailable")
     assert error.status_code == 503
     assert error.detail == "Temporarily unavailable"
+
+
+def test_gateway_http_client_wraps_connect_errors():
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("boom", request=request)
+
+    client = GatewayHttpClient(
+        base_url="http://gateway.test",
+        api_key="secret",
+        timeout_seconds=5.0,
+        transport=_build_transport(handler),
+    )
+
+    with pytest.raises(ValidationTransportError, match="No fue posible conectar"):
+        asyncio.run(
+            client.send_identity_validation(
+                GatewayIdentityRequest(
+                    client_id="12345",
+                    document_type="INE",
+                    file=GatewayFilePart(
+                        file_name="ine.png",
+                        content=b"png",
+                        content_type="image/png",
+                    ),
+                )
+            )
+        )
+
+
+def test_gateway_http_client_wraps_timeout_errors():
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("slow", request=request)
+
+    client = GatewayHttpClient(
+        base_url="http://gateway.test",
+        api_key="secret",
+        timeout_seconds=5.0,
+        transport=_build_transport(handler),
+    )
+
+    with pytest.raises(ValidationTransportError, match="no respondió a tiempo"):
+        asyncio.run(
+            client.send_receipt_validation(
+                GatewayReceiptRequest(
+                    client_id="12345",
+                    source="manual",
+                    document_type="RECEIPT",
+                    file=GatewayFilePart(
+                        file_name="receipt.png",
+                        content=b"png",
+                        content_type="image/png",
+                    ),
+                )
+            )
+        )

@@ -80,6 +80,7 @@ class GatewayValidationAdapter(ValidationGateway):
             source=self.channel_mapping.receipt_source_for_channel(
                 command.document.sender.channel
             ).value,
+            document_type=command.document_type.value,
             file=GatewayFilePart(
                 file_name=command.document.file_name,
                 content=command.document.content,

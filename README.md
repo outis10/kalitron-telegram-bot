@@ -25,6 +25,12 @@ Gap actual del contrato:
 - por eso el dominio interno del bot usa `channel=telegram`, pero una capa adaptadora lo traduce a un `source` válido del gateway
 - `identity` no usa `source`, así que no requiere mapping de canal
 
+Tipos de documento soportados por el gateway:
+
+- `INE`, `INE_REVERSO`, `PASAPORTE`, `LICENCIA` por `/api/v1/validate/identity`
+- `RECEIPT`, `COMPROBANTE_DOMICILIO` por `/api/v1/validate/receipt`
+- `COMPROBANTE_DOMICILIO` expone `is_expired` y se considera vencido si supera 3 meses
+
 ## Arquitectura
 
 El diseño separa canal, aplicación, adaptación de contrato y transporte:
@@ -148,7 +154,9 @@ kalitron-telegram-bot
 
 - `/start`
 - `/receipt`
+- `/receipt COMPROBANTE_DOMICILIO`
 - `/identity INE`
+- `/identity INE_REVERSO`
 - `/identity PASAPORTE`
 - `/identity LICENCIA`
 

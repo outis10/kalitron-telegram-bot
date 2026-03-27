@@ -14,6 +14,7 @@ class GatewayFilePart:
 class GatewayReceiptRequest:
     client_id: str
     source: str
+    document_type: str
     file: GatewayFilePart
 
 
