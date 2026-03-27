@@ -212,11 +212,11 @@ class GatewayHttpClient:
                     file_name=str(document.get("file_name", "")),
                     status=str(document.get("status", "")),
                     error=document.get("error"),
-                    result=dict(document.get("result", {})),
+                    result=dict(document.get("result") or {}),
                 )
                 for document in payload.get("documents", [])
             ],
-            consolidated_data=dict(payload.get("consolidated_data", {})),
+            consolidated_data=dict(payload.get("consolidated_data") or {}),
             created_at=str(payload.get("created_at", "")),
             updated_at=str(payload.get("updated_at", "")),
         )
