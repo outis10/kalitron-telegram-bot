@@ -9,14 +9,19 @@ from kalitron_telegram_bot.client_registry import (
     CsvClientResolver,
 )
 from kalitron_telegram_bot.domain import (
+    CaseStage,
+    CaseSubmissionDocument,
     ChannelIdentity,
+    ClientCaseSession,
     GatewayReceiptSource,
     IdentityDocumentType,
     IncomingDocument,
     InputChannel,
     ReceiptDocumentType,
+    RemoteCaseStatus,
     ValidateIdentityCommand,
     ValidateReceiptCommand,
+    ValidationCase,
 )
 from kalitron_telegram_bot.errors import (
     ClientOnboardingError,
@@ -30,17 +35,20 @@ from kalitron_telegram_bot.gateway_adapter import (
     GatewayValidationAdapter,
 )
 from kalitron_telegram_bot.gateway_contract import (
+    GatewayCreateCaseRequest,
     GatewayFilePart,
     GatewayIdentityRequest,
     GatewayReceiptRequest,
 )
 from kalitron_telegram_bot.gateway_http_client import GatewayHttpClient
+from kalitron_telegram_bot.session_store import SessionStore
 
 
 class DummyGatewayHttpClient:
     def __init__(self) -> None:
         self.receipt_request: GatewayReceiptRequest | None = None
         self.identity_request: GatewayIdentityRequest | None = None
+        self.case_request: GatewayCreateCaseRequest | None = None
 
     async def send_receipt_validation(self, request: GatewayReceiptRequest):
         self.receipt_request = request
@@ -70,6 +78,36 @@ class DummyGatewayHttpClient:
                 "breakdown": {"rules_score": 1.0},
             }
         )
+
+    async def create_validation_case(self, request: GatewayCreateCaseRequest):
+        self.case_request = request
+        return type(
+            "GatewayCreateCaseResponseStub",
+            (),
+            {"case_id": "case_abc123", "status": "QUEUED"},
+        )()
+
+    async def get_validation_case(self, case_id: str):
+        return type(
+            "GatewayCaseStatusResponseStub",
+            (),
+            {
+                "case": ValidationCase(
+                    case_id=case_id,
+                    client_id="12345",
+                    channel="telegram",
+                    chat_id="999",
+                    status=RemoteCaseStatus.QUEUED,
+                    authorization_status="PENDING",
+                    rejection_reason_code=None,
+                    rejection_reason_text=None,
+                    documents=[],
+                    consolidated_data={},
+                    created_at="2026-03-27T00:00:00Z",
+                    updated_at="2026-03-27T00:00:00Z",
+                )
+            },
+        )()
 
 
 def _build_transport(handler):
@@ -234,6 +272,101 @@ def test_use_cases_resolve_client_id_before_gateway_call(tmp_path):
     )
 
     assert result.document_type == "RECEIPT"
+
+
+def test_use_cases_keep_explicit_client_id_without_resolver_lookup(tmp_path):
+    csv_path = tmp_path / "clients.csv"
+    csv_path.write_text(
+        "client_id,channel,user_id,chat_id,username,phone_number\n",
+        encoding="utf-8",
+    )
+    use_cases = ValidationUseCases(
+        client_resolver=CsvClientResolver(str(csv_path)),
+        validation_gateway=GatewayValidationAdapter(
+            http_client=DummyGatewayHttpClient(),  # type: ignore[arg-type]
+            channel_mapping=GatewayChannelMapping.from_settings(
+                telegram_receipt_source="manual"
+            ),
+        ),
+    )
+
+    result = asyncio.run(
+        use_cases.validate_identity(
+            ValidateIdentityCommand(
+                document=IncomingDocument(
+                    sender=ChannelIdentity(
+                        channel=InputChannel.TELEGRAM,
+                        user_id="12345",
+                    ),
+                    client_id="client-explicit-001",
+                    file_name="ine.png",
+                    content_type="image/png",
+                    content=b"png",
+                ),
+                document_type=IdentityDocumentType.INE,
+            )
+        )
+    )
+
+    assert result.document_type == "INE"
+
+
+def test_session_store_tracks_client_case_progress():
+    store = SessionStore()
+    case_session = ClientCaseSession(client_id="client-001")
+
+    store.set_case(101, case_session)
+
+    active_case = store.get_case(101)
+
+    assert active_case is not None
+    assert active_case.stage is CaseStage.COLLECTING
+    assert active_case.next_expected_document_type() == "INE"
+
+
+def test_use_cases_create_validation_case_with_explicit_client_id():
+    http_client = DummyGatewayHttpClient()
+    resolver = CsvClientResolver.__new__(CsvClientResolver)
+    resolver.resolve_client_id = lambda identity: "unexpected"  # type: ignore[method-assign]
+    use_cases = ValidationUseCases(
+        client_resolver=resolver,
+        validation_gateway=GatewayValidationAdapter(
+            http_client=http_client,  # type: ignore[arg-type]
+            channel_mapping=GatewayChannelMapping.from_settings(
+                telegram_receipt_source="manual"
+            ),
+        ),
+    )
+
+    case_id, status = asyncio.run(
+        use_cases.create_validation_case(
+            client_id="client-001",
+            identity=ChannelIdentity(
+                channel=InputChannel.TELEGRAM,
+                user_id="1",
+                chat_id="999",
+            ),
+            documents=[
+                CaseSubmissionDocument(
+                    document_type="INE",
+                    document=IncomingDocument(
+                        sender=ChannelIdentity(
+                            channel=InputChannel.TELEGRAM,
+                            user_id="1",
+                        ),
+                        file_name="ine.png",
+                        content_type="image/png",
+                        content=b"png",
+                    ),
+                )
+            ],
+        )
+    )
+
+    assert case_id == "case_abc123"
+    assert status == "QUEUED"
+    assert http_client.case_request is not None
+    assert http_client.case_request.documents[0].document_type == "INE"
 
 
 def test_csv_client_resolver_rejects_unknown_identity(tmp_path):

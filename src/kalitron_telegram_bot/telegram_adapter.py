@@ -12,6 +12,8 @@ class TelegramChannelAdapter:
 
     def register(self) -> None:
         self.application.add_handler(CommandHandler("start", self.handlers.start))
+        self.application.add_handler(CommandHandler("client", self.handlers.client))
+        self.application.add_handler(CommandHandler("status", self.handlers.status))
         self.application.add_handler(CommandHandler("receipt", self.handlers.receipt))
         self.application.add_handler(CommandHandler("identity", self.handlers.identity))
         self.application.add_handler(

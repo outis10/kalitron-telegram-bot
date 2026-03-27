@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 
@@ -24,6 +24,21 @@ class ReceiptDocumentType(str, Enum):
     ADDRESS_PROOF = "ADDRESS_PROOF"
 
 
+class CaseStage(str, Enum):
+    COLLECTING = "COLLECTING"
+    PROCESSING = "PROCESSING"
+    FAILED = "FAILED"
+
+
+class RemoteCaseStatus(str, Enum):
+    QUEUED = "QUEUED"
+    PROCESSING = "PROCESSING"
+    WAITING_AUTHORIZATION = "WAITING_AUTHORIZATION"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+    FAILED = "FAILED"
+
+
 class GatewayReceiptSource(str, Enum):
     WHATSAPP = "whatsapp"
     CRM = "crm"
@@ -36,6 +51,31 @@ class PendingValidation:
     kind: ValidationKind
     identity_document_type: IdentityDocumentType | None = None
     receipt_document_type: ReceiptDocumentType = ReceiptDocumentType.RECEIPT
+
+
+@dataclass(slots=True)
+class ClientCaseSession:
+    client_id: str
+    stage: CaseStage = CaseStage.COLLECTING
+    remote_case_id: str | None = None
+    remote_status: RemoteCaseStatus | None = None
+    uploaded_documents: dict[str, "IncomingDocument"] = field(default_factory=dict)
+    last_error: str | None = None
+
+    required_documents: tuple[str, ...] = (
+        IdentityDocumentType.INE.value,
+        IdentityDocumentType.INE_REVERSO.value,
+        ReceiptDocumentType.ADDRESS_PROOF.value,
+    )
+
+    def next_expected_document_type(self) -> str | None:
+        for document_type in self.required_documents:
+            if document_type not in self.uploaded_documents:
+                return document_type
+        return None
+
+    def is_complete(self) -> bool:
+        return self.next_expected_document_type() is None
 
 
 @dataclass(slots=True)
@@ -78,3 +118,35 @@ class ValidationResult:
     fraud_indicators: list[str]
     breakdown: dict
     is_expired: bool | None = None
+
+
+@dataclass(slots=True)
+class CaseDocumentResult:
+    document_id: str
+    document_type: str
+    file_name: str
+    status: str
+    error: str | None
+    result: dict
+
+
+@dataclass(slots=True)
+class ValidationCase:
+    case_id: str
+    client_id: str
+    channel: str
+    chat_id: str
+    status: RemoteCaseStatus
+    authorization_status: str | None
+    rejection_reason_code: str | None
+    rejection_reason_text: str | None
+    documents: list[CaseDocumentResult]
+    consolidated_data: dict
+    created_at: str
+    updated_at: str
+
+
+@dataclass(slots=True)
+class CaseSubmissionDocument:
+    document_type: str
+    document: IncomingDocument

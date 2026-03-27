@@ -1,17 +1,23 @@
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass
 
 from kalitron_telegram_bot.application import ValidationGateway
 from kalitron_telegram_bot.domain import (
+    CaseSubmissionDocument,
+    ChannelIdentity,
     GatewayReceiptSource,
     InputChannel,
     ValidateIdentityCommand,
     ValidateReceiptCommand,
+    ValidationCase,
     ValidationResult,
 )
 from kalitron_telegram_bot.errors import ValidationCompatibilityError
 from kalitron_telegram_bot.gateway_contract import (
+    GatewayCaseDocumentRequest,
+    GatewayCreateCaseRequest,
     GatewayFilePart,
     GatewayIdentityRequest,
     GatewayReceiptRequest,
@@ -106,3 +112,32 @@ class GatewayValidationAdapter(ValidationGateway):
             ),
         )
         return await self.http_client.send_identity_validation(request)
+
+    async def create_validation_case(
+        self,
+        client_id: str,
+        identity: ChannelIdentity,
+        documents: list[CaseSubmissionDocument],
+    ) -> tuple[str, str]:
+        request = GatewayCreateCaseRequest(
+            client_id=client_id,
+            channel=identity.channel.value,
+            chat_id=identity.chat_id or "",
+            documents=[
+                GatewayCaseDocumentRequest(
+                    document_type=document.document_type,
+                    file_name=document.document.file_name,
+                    content_type=document.document.content_type,
+                    content_base64=base64.b64encode(document.document.content).decode(
+                        "ascii"
+                    ),
+                )
+                for document in documents
+            ],
+        )
+        response = await self.http_client.create_validation_case(request)
+        return response.case_id, response.status
+
+    async def get_validation_case(self, case_id: str) -> ValidationCase:
+        response = await self.http_client.get_validation_case(case_id)
+        return response.case

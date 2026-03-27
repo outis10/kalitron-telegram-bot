@@ -4,10 +4,12 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from kalitron_telegram_bot.domain import (
+    CaseSubmissionDocument,
     ChannelIdentity,
     IncomingDocument,
     ValidateIdentityCommand,
     ValidateReceiptCommand,
+    ValidationCase,
     ValidationResult,
 )
 
@@ -28,6 +30,15 @@ class ValidationGateway(Protocol):
     async def validate_identity(
         self, command: ValidateIdentityCommand
     ) -> ValidationResult: ...
+
+    async def create_validation_case(
+        self,
+        client_id: str,
+        identity: ChannelIdentity,
+        documents: list[CaseSubmissionDocument],
+    ) -> tuple[str, str]: ...
+
+    async def get_validation_case(self, case_id: str) -> ValidationCase: ...
 
 
 @dataclass(slots=True)
@@ -53,8 +64,38 @@ class ValidationUseCases:
         )
         return await self.validation_gateway.validate_identity(resolved_command)
 
+    async def create_validation_case(
+        self,
+        client_id: str,
+        identity: ChannelIdentity,
+        documents: list[CaseSubmissionDocument],
+    ) -> tuple[str, str]:
+        resolved_documents = [
+            CaseSubmissionDocument(
+                document_type=document.document_type,
+                document=self._resolve_document_client(
+                    IncomingDocument(
+                        sender=document.document.sender,
+                        file_name=document.document.file_name,
+                        content_type=document.document.content_type,
+                        content=document.document.content,
+                        client_id=client_id,
+                    )
+                ),
+            )
+            for document in documents
+        ]
+        return await self.validation_gateway.create_validation_case(
+            client_id, identity, resolved_documents
+        )
+
+    async def get_validation_case(self, case_id: str) -> ValidationCase:
+        return await self.validation_gateway.get_validation_case(case_id)
+
     def _resolve_document_client(self, document: IncomingDocument) -> IncomingDocument:
-        client_id = self.client_resolver.resolve_client_id(document.sender)
+        client_id = document.client_id or self.client_resolver.resolve_client_id(
+            document.sender
+        )
         return IncomingDocument(
             sender=document.sender,
             file_name=document.file_name,
